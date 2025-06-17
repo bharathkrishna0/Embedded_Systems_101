@@ -4,3 +4,6 @@
 [submodule "audio-visualizer/components/esp32-u8g2-hal"]
 	path = audio-visualizer/components/esp32-u8g2-hal
 	url = https://github.com/mohammedshuhad/esp32-u8g2-hal.git
+[submodule "audio-visualizer/components/kissfft_idf"]
+	path = audio-visualizer/components/kissfft_idf
+	url = https://github.com/bharathkrishna0/kissfft_idf.git
