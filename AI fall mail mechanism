@@ -1,0 +1,124 @@
+// ---- LIBRARIES ----
+#include <esp_now.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <fall_detection_inferencing.h> // Edge Impulse library
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+
+// ---- PINS / LCD ----
+LiquidCrystal_I2C lcd(0x27, 16, 2); // 16x2 LCD
+
+// ---- Wi-Fi + Telegram ----
+const char* ssid = "Harlango Orbiters";
+const char* password = "cold water";
+
+#define BOT_TOKEN "8014479264:AAHOYuYkwj6SRLWgpa-31FqvLSJtYB321Bk"
+#define CHAT_ID_1 "7406956703"
+
+WiFiClientSecure secured_client;
+UniversalTelegramBot bot(BOT_TOKEN, secured_client);
+
+// ---- ESP-NOW ----
+// Device A MAC (Wearable)
+uint8_t wearableMac[] = {0xD8, 0x3B, 0xDA, 0xA3, 0xCA, 0xB4};
+
+// ---- MESSAGE STRUCT ----
+typedef struct struct_message {
+  char text[32];
+} struct_message;
+
+// ---- AI INFERENCE PLACEHOLDER ----
+bool run_inference() {
+    Serial.println("Running AI inference...");
+    delay(1000);
+    // Replace with Edge Impulse actual inference call
+    return true; // true = fall, false = false alarm
+}
+
+// ---- ESP-NOW RECEIVE CALLBACK ----
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
+    char msg[32];
+    memcpy(msg, incomingData, len);
+    msg[len] = '\0';
+    Serial.print("Message from Device A: "); Serial.println(msg);
+
+    if (strcmp(msg, "CHECK_FALL") == 0) {
+        Serial.println("Potential fall detected. Running AI...");
+        bool fall_confirmed = run_inference();
+
+        // Update local LCD
+        lcd.clear();
+        lcd.setCursor(0,0);
+        if (fall_confirmed) lcd.print("FALL VERIFIED");
+        else lcd.print("FALSE ALARM");
+
+        // Send confirmation back to Device A
+        struct_message sendData;
+        if (fall_confirmed) {
+            strcpy(sendData.text, "FALL_CONFIRMED");
+            // Telegram alert
+            bot.sendMessage(CHAT_ID_1, "🚨 ALERT! Fall detected by AI Monitor.", "");
+        } else {
+            strcpy(sendData.text, "FALSE_ALARM");
+        }
+
+        esp_err_t result = esp_now_send(wearableMac, (uint8_t *)&sendData, sizeof(sendData));
+        if(result == ESP_OK) Serial.println("Confirmation sent to Device A");
+        else Serial.println("Error sending confirmation");
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+
+    // LCD init
+    Wire.begin();
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0,0);
+    lcd.print("AI Monitor Online");
+
+    // Wi-Fi
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    while(WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nWiFi Connected");
+    secured_client.setInsecure();
+
+    // Telegram message
+    bot.sendMessage(CHAT_ID_1, "✅ AI Monitor online.", "");
+
+    // ESP-NOW init
+    if(esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW init failed!");
+        lcd.setCursor(0,1);
+        lcd.print("ESP-NOW Failed!");
+        return;
+    }
+
+    // Register receive callback
+    esp_now_register_recv_cb(OnDataRecv);
+
+    // Add Device A as peer
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, wearableMac, 6);
+    peerInfo.channel = 0;
+    peerInfo.encrypt = false;
+    if(esp_now_add_peer(&peerInfo) != ESP_OK){
+        Serial.println("Failed to add peer");
+        lcd.setCursor(0,1);
+        lcd.print("Peer Add Fail");
+        return;
+    }
+
+    Serial.println("Setup complete. Waiting for Device A...");
+}
+
+void loop() {
+    delay(2000); // idle
+}
